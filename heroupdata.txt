@@ -1,0 +1,272 @@
+//pragma experimental ABIEncoderV2;
+pragma solidity ^0.5.0;
+import "./ERC721.sol";
+import "./Address.sol";
+import "./IERCReceiver.sol";
+
+contract Heroes{
+    
+    using Address for address;
+    
+    Hero[] public heroes;
+    Treasure[] public treasures;
+    uint256 heroesCount;
+    uint256 hirableHeroCount;
+    uint256 treasureCount;
+    mapping(address => uint256) ownerHeroesCount;
+    mapping(uint256 => address) heroesToOwner; 
+    mapping(uint256 => address) treasuresToOwner;
+    mapping(address => uint256) ownerTreasuresCount;
+    
+    
+    address payable public creator;
+    
+    
+    
+    constructor() public{
+        creator = msg.sender;
+        Hero memory hero;
+        hero.name = "Kalyn";
+        hero.combat = 1;
+        hero.search = 4;
+        hero.readytime = now;
+        hero.foundtreasures = new int256[](0);
+        hero.foundtreasureIds = new uint256[](0);
+        hero.hirable = true;
+        hero.actionable = false;
+        hero.out = false;
+            
+        heroes.push(hero);
+        heroesToOwner[heroesCount] = msg.sender;
+        heroesCount++;
+        hirableHeroCount++;
+        ownerHeroesCount[msg.sender]++;
+        
+        Treasure memory newtreasure;
+        newtreasure.val = -2;
+        newtreasure.used = false;
+        newtreasure.heroid = -1;
+        newtreasure.id = treasureCount;
+        treasures.push(newtreasure);
+        treasuresToOwner[treasureCount] = msg.sender;
+        treasureCount++;
+        ownerTreasuresCount[msg.sender]++;
+    }
+    
+    modifier onlyCreator() {
+        require(msg.sender == creator);
+        _;
+    }
+    
+    
+    
+    
+    struct Hero{
+        string name;
+        uint256 combat;
+        uint256 search;
+        uint256 readytime;
+        int256[] foundtreasures; //only for found treasures. not applied ones
+        uint256[] foundtreasureIds;
+        uint256 appliedTreasuresCount;
+        bool hirable;
+        bool actionable;
+        bool out;
+    }
+    
+    struct Treasure{
+        int256 val;
+        bool used;
+        int256 heroid;
+        uint256 id;
+    } 
+    
+    function getFoundTreasures(uint256 _heroId) public view returns(int256[] memory) {
+        return heroes[_heroId].foundtreasures;
+    }
+    
+    function addTreasure(int256 _val) public onlyCreator{
+        Treasure memory newtreasure;
+        newtreasure.val = _val;
+        newtreasure.used = false;
+        newtreasure.heroid = -1;
+        newtreasure.id = treasureCount;
+        treasures.push(newtreasure);
+        treasuresToOwner[treasureCount] = msg.sender;
+        treasureCount++;
+        ownerTreasuresCount[msg.sender]++;
+    }
+    
+    function addHero(
+        string memory _name,
+        uint _combat,
+        uint _search
+        ) public 
+         onlyCreator {
+            Hero memory hero;
+            hero.name = _name;
+            hero.combat = _combat;
+            hero.search = _search;
+            hero.readytime = now;
+            hero.foundtreasures = new int256[](0);
+            hero.hirable = true;
+            hero.actionable = false;
+            hero.out = false;
+            
+            //to test that the name is not empty, avoid to add void heroes
+            //no direct way to test if a string is empty. transfer to bytes array
+            // and test the array length.
+            bytes memory tempname = bytes(_name);
+            require(tempname.length > 0);
+            heroes.push(hero);
+            heroesToOwner[heroesCount] = msg.sender;
+            heroesCount++;
+            hirableHeroCount++;
+            ownerHeroesCount[msg.sender]++;
+            
+            
+    }
+    
+    //return the index array of the owner's heros  
+    function myHeros() external view returns(uint[] memory){
+        //in memory we define a fixed length array
+        //can not return struct, only for internal 
+        uint[] memory myheroes = new uint[](ownerHeroesCount[msg.sender]);
+        uint count = 0;
+        for(uint i = 0; i < heroes.length; i++){
+            if(heroesToOwner[i] == msg.sender)
+                myheroes[count++] = i;
+        }
+        return myheroes;
+    }
+    
+    function myTreasures() external view returns(int256[] memory){
+        int256[] memory mytreasures = new int256[](ownerTreasuresCount[msg.sender]);
+        uint count = 0;
+        for(uint i = 0; i < treasures.length; i++){
+            if(treasuresToOwner[i] == msg.sender)
+                mytreasures[count] = treasures[i].val;
+                count++;
+        }
+        return mytreasures;
+    }
+    
+    function mytreasuresid() external view returns(uint256[] memory){
+        uint256[] memory treasuresid = new uint256[](ownerTreasuresCount[msg.sender]);
+        uint count = 0;
+        for(uint i = 0; i < treasures.length; i++){
+            if(treasuresToOwner[i] == msg.sender){
+                treasuresid[count] = i;
+                count++;
+            }
+        }
+        return treasuresid;
+    }
+    
+    function getCooldownTime(uint256 _searchability) internal pure returns(uint256){
+        if (_searchability > 50) {
+            return 10;
+        }
+        else{
+            return 10 + (50 - _searchability);
+        }
+    }
+    
+    function totalHeroes() public view returns(uint256){
+        return heroesCount;
+    }
+    
+    function dimissHero(uint _tokenID) public {
+        require(msg.sender == heroesToOwner[_tokenID]);
+        heroesToOwner[_tokenID] = creator;
+        ownerHeroesCount[creator]++;
+        ownerHeroesCount[msg.sender]--;
+        heroes[_tokenID].hirable = true;
+        if(heroes[_tokenID].appliedTreasuresCount > 0){
+            changeHeroTreasureOwnership(msg.sender, creator, _tokenID);
+        }
+        
+    }
+    
+    function changeHeroTreasureOwnership(address _from, address _to, uint256 _heroId) internal {
+        for(uint256 i = 0; i < treasureCount; i++){
+            if(treasuresToOwner[i] == _from){
+                if(treasures[i].heroid == int256(_heroId)){
+                    treasuresToOwner[i] = _to;
+                    ownerTreasuresCount[_to]++;
+                    ownerTreasuresCount[_from]--;
+                }
+            }
+        }
+    }
+    
+    function getTreasureCount() public view returns(uint256){
+        return ownerTreasuresCount[msg.sender];
+    }
+    
+    function heroTreasures(uint256 _heroId) external view returns(int256[] memory){
+        uint256 len = heroes[_heroId].appliedTreasuresCount;
+        //int256[2][] memory herotreasures;
+        int256[] memory herotreasures = new int256[](len);
+        uint256 count = 0;
+        if(len > 0){
+            for(uint256 i = 0; i < treasureCount; i++){
+                if(treasures[i].heroid == int256(_heroId)){
+                    herotreasures[count++]= treasures[i].val;
+                }
+            }
+        }
+        return herotreasures;
+    }
+    
+    function applyTreasure(uint256 _heroId, uint256 _treasureId) public {
+        require(msg.sender == heroesToOwner[_heroId] && msg.sender == treasuresToOwner[_treasureId] && !treasures[_treasureId].used);
+        int256 _val = treasures[_treasureId].val;
+        if(_val > 0){
+            heroes[_heroId].combat += uint256(_val);
+        }
+        else{
+            heroes[_heroId].search += uint256(_val * -1);
+        }
+        treasures[_treasureId].used = true;
+        treasures[_treasureId].heroid = int256(_heroId);
+        heroes[_heroId].appliedTreasuresCount++;
+    }
+    
+    function takeoffTreasure(uint256 _heroId, uint256 _treasureId) public {
+        // if this one is not applied to any hero, the default value is 0, which is meaningful.
+        // we add require(treasures[_treasureId].used) to detect it.
+        require(msg.sender == heroesToOwner[_heroId] && msg.sender == treasuresToOwner[_treasureId] && 
+                treasures[_treasureId].used &&  treasures[_treasureId].heroid == int256(_heroId));
+        int256 _val = treasures[_treasureId].val;
+        if(_val > 0){
+            int256 _combat = int256(heroes[_heroId].combat) - _val;
+            if(_combat < 0){
+                heroes[_heroId].combat = 0;
+            }
+            else {
+                heroes[_heroId].combat = uint256(_combat);
+            }
+        }
+        else{
+            int256 _search = int256(heroes[_heroId].search) + _val;
+            if(_search < 0){
+                heroes[_heroId].search = 0;
+            }
+            else {
+                heroes[_heroId].search = uint256(_search);
+            }
+        }
+        treasures[_treasureId].used = false;
+        heroes[_heroId].appliedTreasuresCount--;
+    }
+    
+    function getTreasureOwner() external view returns(address[] memory) {
+        address[] memory temp = new address[](treasureCount);
+        for(uint256 i = 0; i < treasureCount; i++){
+            temp[i] = treasuresToOwner[i];
+        }
+        return temp;
+    }
+}
+

@@ -1,0 +1,173 @@
+pragma solidity ^0.5.0;
+import "./Hero.sol";
+
+//something is wrong with my treasures and call back hero
+
+contract exploration is Heroes {
+    uint256 start = now;
+    event getTreasures(int[] _newtreasures);
+    
+    function transferHero(uint256 _tokenId, address _to) public onlyCreator {
+        require(heroesToOwner[_tokenId] == msg.sender);
+        heroesToOwner[_tokenId] = _to;
+        ownerHeroesCount[msg.sender]--;
+        ownerHeroesCount[_to]++;
+        heroes[_tokenId].hirable = false;
+    }
+    
+    function sendOut(uint256 _tokenId) public {
+        require(msg.sender == heroesToOwner[_tokenId]);
+        require(now > heroes[_tokenId].readytime);
+        heroes[_tokenId].out = true;
+    }
+    
+    function callBackHero(uint256 _tokenId) public {
+        require(msg.sender == heroesToOwner[_tokenId]);
+        require(heroes[_tokenId].out);
+        heroes[_tokenId].out = false;
+        heroes[_tokenId].search++;
+        heroes[_tokenId].readytime = now + getCooldownTime(heroes[_tokenId].search) * 1 minutes;
+        uint256 len = heroes[_tokenId].foundtreasures.length;
+        if ( len > 0){
+            for(uint256 i = 0; i < len; i++){
+                uint256 treasureid = heroes[_tokenId].foundtreasureIds[i];
+                treasuresToOwner[treasureid] = msg.sender;
+                ownerTreasuresCount[msg.sender]++;
+            }
+        }
+        heroes[_tokenId].foundtreasures.length = 0;
+    }
+    
+     
+    
+    function getOutHeroes() public view returns (uint256[] memory){
+        uint256[] memory outheroes = new uint256[](heroesCount);
+        uint counter = 0;
+        for (uint256 i = 0; i < heroesCount; i++){
+            if (heroes[i].out){
+                outheroes[counter++] = i;
+            }
+        }
+        uint256[] memory outs = new uint256[](counter);
+        for (uint256 i = 0; i < counter; i++){
+            outs[i] = outheroes[i];
+        }
+        return outs;
+    }
+    
+    //can not do this with in smart contract, only can be triggered from outside.
+    function getCombatPairs() private {
+        int nounce = 0;
+        uint256 interval = getrand(nounce);
+        uint256 rand1;
+        uint256 rand2;
+        if (now >= start + interval * 10 minutes) {
+            uint256[] memory outs = getOutHeroes();
+            if (outs.length >= 2){
+                rand1 = uint(keccak256(abi.encodePacked(now, creator))) % outs.length;
+                rand2 = rand1;
+                while (rand2 == rand1){
+                    rand2 = uint(keccak256(abi.encodePacked(now, creator, nounce))) % outs.length;
+                    nounce++;
+                }
+            }
+        }
+        require(heroesToOwner[rand1] != heroesToOwner[rand2]);
+        _combat(rand1, rand2);
+    }
+
+    //for demostration 
+    function setCombatPairs(uint256 _tokenId1, uint256 _tokenId2) public onlyCreator {
+        require(heroes[_tokenId1].out && heroes[_tokenId2].out);
+        require(heroesToOwner[_tokenId1] != heroesToOwner[_tokenId2]);
+        _combat(_tokenId1, _tokenId2);
+    }
+    
+    //only can be triggered from outside, random time interval
+    function getRandomTreasure() private {
+        for(uint256 i = 0; i < heroesCount; i++){
+            if(heroes[i].out){
+                int256 rand = _getRandTreasure(heroes[i].search);
+                if(rand != 0){
+                    foundTreasureUpdates(i, rand);
+                }
+            }
+        }
+    }
+    
+    function _getRandTreasure(uint256 _search) internal view returns(int256){
+        int256 _nounce = 0;
+        int256 rand = int256(getrand(_nounce));
+        _nounce++;
+        uint256 rand2 = getrand(_nounce);
+        if(rand2 > 4){
+            rand = -1 * rand;
+        }
+        return int256(_search) *rand / 10;
+    }
+    
+    function setRandomTreasure(uint256 _heroId, int256 _val) public onlyCreator{
+        require(heroes[_heroId].out);
+        foundTreasureUpdates(_heroId, _val);
+    }
+    
+    function resetReadytime(uint256 _heroId) public onlyCreator {
+        heroes[_heroId].readytime = now -1;
+    }
+    
+    function foundTreasureUpdates(uint256 _heroId, int256 _val) internal {
+        heroes[_heroId].foundtreasures.push(_val);
+        heroes[_heroId].foundtreasureIds.push(treasureCount);
+        Treasure memory newtreasure;
+        newtreasure.val = _val;
+        newtreasure.used = false;
+        newtreasure.heroid = -1;
+        newtreasure.id = treasureCount;
+        treasureCount++;
+        treasures.push(newtreasure);
+    }
+    
+    function _combat(uint256 _tokenId1, uint256 _tokenId2) private {
+        require(heroes[_tokenId1].out && heroes[_tokenId2].out);
+        uint256 sum = heroes[_tokenId1].combat + heroes[_tokenId2].combat;
+        uint rand = getrand(int256(_tokenId1));
+        uint thresh = heroes[_tokenId1].combat / sum;
+        if (rand <= thresh){
+            win(_tokenId1, _tokenId2);
+            lose(_tokenId2);
+        }
+        else{
+            win(_tokenId2, _tokenId1);
+            lose(_tokenId1);
+            
+        }
+    }
+    
+    function getrand(int256 _nounce) public view returns(uint) {
+        return uint(keccak256(abi.encodePacked(now, msg.sender, _nounce))) % 10;
+    }
+    function win(uint256 _winner, uint256 _loser) private {
+        heroes[_winner].combat += 1;
+        uint256 len = heroes[_loser].foundtreasures.length;
+        if ( len > 0){
+            for (uint256 i = 0; i < len; i++){
+                heroes[_winner].foundtreasures.push(heroes[_loser].foundtreasures[i]);
+                heroes[_winner].foundtreasureIds.push(heroes[_loser].foundtreasureIds[i]);
+            } 
+        }
+    }
+    
+    function lose(uint256 _loser) private {
+        heroes[_loser].foundtreasures.length = 0;
+        heroes[_loser].foundtreasureIds.length = 0;
+        if(heroes[_loser].combat > 0){
+            heroes[_loser].combat --;
+        }
+        if(heroes[_loser].search > 0){
+            heroes[_loser].search --;
+        }
+        
+        heroes[_loser].out = false;
+        heroes[_loser].readytime = now + 300 minutes;
+    }
+}

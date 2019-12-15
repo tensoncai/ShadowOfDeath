@@ -1,0 +1,109 @@
+pragma solidity ^0.5.0;
+import "./Hero.sol";
+
+contract heroTransaction is Heroes, ERC721 {
+    
+    //mapping from hero id to approvals
+    mapping(uint256 => address ) heroesApprovals;
+    // Mapping from owner to operator approvals
+    mapping (address => mapping (address => bool)) private operatorApprovals;
+    
+    event Transfer(address from, address to, uint tokenId);
+    event Approval(address indexed _owner, address indexed _approved, uint256 indexed _tokenId);
+    event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved);
+    
+    function _transfer(address _from, address _to, uint256 _tokenId) internal {
+        require(_to != address(0) && _from == heroesToOwner[_tokenId] && _exists(_tokenId));
+        
+        ownerHeroesCount[_to]++;
+        heroesToOwner[_tokenId] = _to;
+        ownerHeroesCount[_from]--;
+        if (heroes[_tokenId].appliedTreasuresCount > 0){
+            changeHeroTreasureOwnership(_from, _to, _tokenId);
+        }
+        //delete from the approved
+        delete heroesApprovals[_tokenId];
+        emit Transfer(_from, _to, _tokenId);
+    }
+    
+    function _owns(address _claim, uint256 _tokenId) internal view returns (bool) {
+        return heroesToOwner[_tokenId] == _claim;
+    }
+    
+    function balanceOf(address _owner) public view returns (uint256 count) {
+        return ownerHeroesCount[_owner];
+    }
+    
+    function ownerOf(uint256 _tokenId) external view returns (address){
+        return heroesToOwner[_tokenId];
+    }
+    
+    function transferFrom(address  _from, address _to, uint256 _tokenId) external payable{
+        //change msg.sender to tx.origin need to check
+        require(_isApprovedOrOwner(msg.sender, _tokenId), "ERC721: transfer caller is not owner nor approved");
+        //require(_isApprovedOrOwner(_from, _tokenId), "ERC721: transfer caller is not owner nor approved");
+        _transfer(_from, _to, _tokenId);
+        
+    }
+    
+    function safeTransferFrom(address _from, address _to, uint256  _tokenId, bytes calldata _data) external payable{
+        require(_from == heroesToOwner[_tokenId]);
+        require(_isApprovedOrOwner(msg.sender, _tokenId), "ERC721: transfer caller is not owner nor approved");
+        _transfer(msg.sender, _to, _tokenId);
+        if(_to.isContract()){
+             require(IERC721Receiver(_to).onERC721Received(msg.sender, _from, _tokenId, _data) == bytes4(keccak256("onERC721Received(address,address,uint256,bytes)")),
+             "ERC721: transfer to non ERC721Receiver implementer");
+        }
+   
+    }
+
+    
+    function safeTransferFrom(address _from, address _to, uint256 _tokenId) external payable{
+        require(_from == heroesToOwner[_tokenId]);
+        require(_isApprovedOrOwner(msg.sender, _tokenId), "ERC721: transfer caller is not owner nor approved");
+        _transfer(msg.sender, _to, _tokenId);
+    }
+    
+    function approve(address _approved, uint256 _tokenId) external payable{
+        require(msg.sender == heroesToOwner[_tokenId]);
+        heroesApprovals[_tokenId] = _approved;
+        emit Approval(msg.sender, _approved, _tokenId);
+    }
+    
+    function setApprovalForAll(address _operator, bool _approved) external{
+        require(msg.sender != _operator, "ERC721: approval to owner");
+        operatorApprovals[msg.sender][_operator] = _approved;
+        emit ApprovalForAll(msg.sender, _operator, _approved);
+    }
+    
+    function getApproved(uint256 _tokenId) external view returns (address){
+        if(heroesApprovals[_tokenId] != address(0)){
+            return heroesApprovals[_tokenId];
+        }
+        else
+            return address(0);
+    }
+    
+    function isApprovedForAll(address _owner, address _operator) external view returns (bool){
+         return operatorApprovals[_owner][_operator];
+    }
+
+    //function onERC721Received(address _operator, address _from, uint256 _tokenId, bytes calldata  _data) external returns(bytes4){
+    //    return bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"));
+    //}
+    
+    
+    function _exists(uint256 _tokenId) internal view returns(bool) {
+        return heroesToOwner[_tokenId] != address(0);
+    }
+    
+    function _isApprovedOrOwner(address _spender, uint256 _tokenId) internal view returns (bool) {
+        require(_exists(_tokenId), "ERC721: operator query for nonexistent token");
+        address owner = heroesToOwner[_tokenId];
+        return (_spender == owner || heroesApprovals[_tokenId] == _spender || operatorApprovals[owner][_spender]);
+    }
+    
+    
+    
+    
+}

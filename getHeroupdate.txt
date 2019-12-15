@@ -1,0 +1,41 @@
+pragma solidity ^0.5.0; 
+ import "./Hero.sol";
+ import "./heroTransaction.sol";
+ import "./ERC721.sol";
+ 
+contract getHero is Heroes, heroTransaction {  
+    
+    event HireHero(address _from, address _to, uint256);
+    
+  function hirableHero() external view returns (uint[] memory){
+        uint[] memory hirableheroes = new uint[](hirableHeroCount);
+        uint count = 0;
+        for(uint i = 0; i < heroes.length; i++){
+            if(heroes[i].hirable == true)
+                hirableheroes[count++] = i;
+        }
+        return hirableheroes;
+    }
+    
+    function hireHero(uint256 _tokenId) public payable {
+        require(heroesToOwner[_tokenId] != address(0) && heroes[_tokenId].hirable);
+        creator.transfer(1 ether);
+        emit HireHero(msg.sender, creator, 1);
+        sendHero(msg.sender, _tokenId);
+        
+    }
+    
+    function sendHero(address _to, uint256 _tokenId) internal {
+        require(heroesToOwner[_tokenId] == creator && heroes[_tokenId].hirable);
+        ownerHeroesCount[_to]++;
+        ownerHeroesCount[creator]--;
+        heroesToOwner[_tokenId] = _to;
+        heroes[_tokenId].hirable = false;
+        hirableHeroCount--;
+        if (heroes[_tokenId].appliedTreasuresCount > 0){
+            changeHeroTreasureOwnership(creator, _to, _tokenId);
+        }
+    }
+    
+    
+}
